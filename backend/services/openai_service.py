@@ -1,20 +1,24 @@
 import os
 import json
 import re
-from openai import AsyncOpenAI
-from services.prompts import SYSTEM_PROMPT_GENERATE, GENERATE_TEST_CASES_PROMPT, ANALYZE_FAILURES_PROMPT
-from models import TestCase, FailureAnalysis, ComplexityInsight, ExecutionResult
-
+from groq import AsyncGroq
 from dotenv import load_dotenv
+from models import TestCase, FailureAnalysis, ComplexityInsight, ExecutionResult
+from services.prompts import GENERATE_TEST_CASES_PROMPT, ANALYZE_FAILURES_PROMPT
+
 load_dotenv()
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL = "gpt-4o"
+client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+MODEL = "llama-3.3-70b-versatile"
 
 def _extract_json(text: str) -> dict:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start != -1 and end > start:
+        text = text[start:end]
     return json.loads(text)
 
 async def generate_test_cases(problem_statement, solution_code, language, platform):
@@ -27,12 +31,11 @@ async def generate_test_cases(problem_statement, solution_code, language, platfo
     response = await client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_GENERATE},
+            {"role": "system", "content": "You are an expert competitive programming judge. Respond with valid JSON only. No markdown, no explanation outside JSON."},
             {"role": "user", "content": prompt},
         ],
         temperature=0.7,
         max_tokens=4000,
-        response_format={"type": "json_object"},
     )
     data = _extract_json(response.choices[0].message.content)
     test_cases = []
@@ -74,12 +77,11 @@ async def analyze_failures(problem_statement, solution_code, language, failed_ca
     response = await client.chat.completions.create(
         model=MODEL,
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_GENERATE},
+            {"role": "system", "content": "You are a senior code reviewer. Respond with valid JSON only. No markdown outside JSON."},
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
         max_tokens=4000,
-        response_format={"type": "json_object"},
     )
     data = _extract_json(response.choices[0].message.content)
     analyses = [
